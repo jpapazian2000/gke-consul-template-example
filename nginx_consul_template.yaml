@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      annotations:
+        'consul.hashicorp.com/connect-inject': 'true'
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: consul-template
+          image: hashicorp/consul-template:alpine
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          command:
+            - "sh"
+            - "-c"
+            - | 
+              cat <<EOF> /data/index.html.ctmpl
+              <h1>{{ key "website/title" }}</h1>
+              <p>Consul is awesome!</p>
+              <p>{{ key "website/content" }}</p>
+              EOF
+              export CONSUL_HTTP_ADDR="https://${HOST_IP}:8501"
+              consul-template -template "/data/index.html.ctmpl:/data/index.html" -log-level=debug -consul-ssl-verify=false -consul-ssl
+          volumeMounts:
+            - name: www
+              mountPath: /data
+        - name: nginx
+          image: nginx:latest
+          volumeMounts:
+            - name: www
+              mountPath: /usr/share/nginx/html
+          ports:
+          - containerPort: 80
+      volumes:
+        - name: www
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    protocol: TCP
+  selector:
+    app: nginx
